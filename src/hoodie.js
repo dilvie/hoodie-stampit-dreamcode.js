@@ -45,11 +45,11 @@ var methods = {
     // we are piping the result of the request to return a nicer
     // error if the request cannot reach the server at all.
     // We can't return the promise of $.ajax directly because of
-    // the piping, as for whatever reason the returned promise 
+    // the piping, as for whatever reason the returned promise
     // does not have the `abort` method any more, maybe others
     // as well. See also http://bugs.jquery.com/ticket/14104
     requestPromise = $.ajax($.extend(defaults, options));
-    pipedPromise = requestPromise.then( null, pipeRequestError);
+    pipedPromise = requestPromise.then( null, pipeRequestError.bind(this));
     pipedPromise.abort = requestPromise.abort;
 
     return pipedPromise;
@@ -83,8 +83,8 @@ var methods = {
     }
 
     checkConnectionRequest = this.request('GET', '/').pipe(
-      handleCheckConnectionSuccess,
-      handleCheckConnectionError
+      handleCheckConnectionSuccess.bind(this),
+      handleCheckConnectionError.bind(this)
     );
 
     return checkConnectionRequest;
@@ -168,24 +168,24 @@ var methods = {
   }
 
   // QUESTION: Where to put "class" methods?
-  // 
+  //
   // Hoodie.extend = function(name, Module) {
   //   extensions = extensions || {};
   //   extensions[name] = Module;
   // };
 };
 
-// 
+//
 // Private
 // ------------
-// 
+//
 
 var checkConnectionInterval = 30000;
 var checkConnectionRequest;
 var extensions;
 
 // if server cannot be reached at all, return a meaningfull error
-// 
+//
 function pipeRequestError(xhr) {
   var error;
 
@@ -198,7 +198,7 @@ function pipeRequestError(xhr) {
   }
 
   return this.rejectWith(error).promise();
-};
+}
 
 //
 function loadExtensions() {
@@ -212,7 +212,7 @@ function loadExtensions() {
       this[instanceName] = new Module(this);
     }
   }
-};
+}
 
 
 //
@@ -220,13 +220,13 @@ function handleCheckConnectionSuccess() {
   checkConnectionInterval = 30000;
 
   // how to call instance methods from the private methods?
-  window.setTimeout(methods.checkConnection, checkConnectionInterval);
+  window.setTimeout(this.checkConnection, checkConnectionInterval);
 
-  if (!state.online) {
+  if (!this.online) {
 
     // how to call mixed in methods from the private methods?
     events.trigger('reconnected');
-    state.online = true;
+    this.online = true;
   }
 
   return defer().resolve();
@@ -237,22 +237,37 @@ function handleCheckConnectionSuccess() {
 function handleCheckConnectionError() {
   checkConnectionInterval = 3000;
 
-  window.setTimeout(methods.checkConnection, checkConnectionInterval);
+  window.setTimeout(this.checkConnection, checkConnectionInterval);
 
-  if (state.online) {
+  if (this.online) {
     events.trigger('disconnected');
-    state.online = false;
+    this.online = false;
   }
 
   return defer().reject();
 }
 
+function init() {
+  this.baseUrl = this.baseUrl ? this.baseUrl.replace(/\/+$/, '') : "/_api";
 
-module.export = stampit(methods, state).mixin(events);
+  // As I've already mentioned, I don't think you should load extensions at all.
+  // I belive that moving to modules makes the need for tack-on extensions obsolete.
+
+  // This next line probably shouldn't be here. Object instantiation should
+  // avoid side-effects. Having the connection process start up automatically
+  // prevents the user from doing any post-instantiation configuration prior
+  // to launching the connection. A couple examples of why you might want to
+  // delay side effects include unit testing, object pooling, order of operation
+  // dependencies, and so on...
+
+  // this.checkConnection();
+}
+
+module.export = stampit(methods, state).mixin(events).enclose(init);
 
 
 // WHERE TO THE FORMER CONSTRUCTION LOGIC?
-// 
+//
 // // Constructor
 // // -------------
 
@@ -276,7 +291,7 @@ module.export = stampit(methods, state).mixin(events);
 //   this.account = new this.constructor.Account(this);
 //   this.remote = new this.constructor.AccountRemote(this);
 //
-//   loadExtensions();
+//   loadExtensions.call(this); // if you're going to do it, you need to bind `this`
 //   this.checkConnection();
 // }
 // Object.deepExtend(Hoodie, _super);
